@@ -97,7 +97,9 @@ type Breaker struct {
 	BackOff backoff.BackOff
 
 	// the last error in track
-	LastError error
+	lastError error
+	errorLock sync.RWMutex
+
 
 	// ShouldTrip is a TripFunc that determines whether a Fail() call should trip the breaker.
 	// A breaker created with NewBreaker will not have a ShouldTrip by default, and thus will
@@ -209,6 +211,19 @@ func (cb *Breaker) Subscribe() <-chan BreakerEvent {
 	}()
 	cb.eventReceivers = append(cb.eventReceivers, eventReader)
 	return output
+}
+
+// GetLastError ...
+func (cb *Breaker) GetLastError() error  {
+	cb.errorLock.RLock()
+	defer cb.errorLock.RUnlock()
+	return cb.lastError
+}
+
+func (cb *Breaker) setLastError(err error) {
+	cb.errorLock.Lock()
+	defer cb.errorLock.Unlock()
+	cb.lastError = err
 }
 
 // AddListener adds a channel of ListenerEvents on behalf of a listener.
@@ -365,7 +380,7 @@ func (cb *Breaker) CallContext(ctx context.Context, circuit func() error, timeou
 
 	if err != nil {
 		if ctx.Err() != context.Canceled {
-			cb.LastError = err
+			cb.setLastError(err)
 			cb.Fail()
 		}
 		return err
